@@ -2,10 +2,12 @@
 
 Dieses Blender-Add-on laedt Datensaetze nacheinander in Blender. Du pruefst oder
 bearbeitest den aktuellen Datensatz und klickst danach `Save & Next`. Das Add-on
-speichert den aktuellen Stand und laedt automatisch den naechsten Datensatz.
+exportiert den aktuellen Stand als `.obj` und laedt automatisch den naechsten
+Datensatz.
 
-Der Fortschritt wird in einer State-Datei gespeichert. Dadurch kannst du Blender
-schliessen und spaeter mit `Resume` weiterarbeiten.
+Pro Datensatz wird nur eine OBJ-Datei exportiert. Zusaetzlich gibt es eine
+Queue-State-Datei, damit `Resume` funktioniert. Es werden keine Report-JSONs,
+Kommentare, Review-Status-Dateien oder `.blend`-Dateien geschrieben.
 
 ## Installation
 
@@ -89,7 +91,7 @@ Im Tab `Data Queue` gibt es diese Felder:
 - `SynVA Root`: Hauptordner, unter dem die Datensatzordner liegen.
 - `File Pattern`: Suchmuster relativ zu `SynVA Root`.
 - `Manifest CSV`: CSV-Datei, falls der automatische Scan deaktiviert ist.
-- `Output Folder`: Zielordner fuer gespeicherte `.blend`-Dateien und Reports.
+- `Output Folder`: Zielordner fuer exportierte `.obj`-Dateien.
 
 Neben den Pfadfeldern gibt es in Blender normalerweise ein kleines Ordner-Symbol.
 Darueber kannst du den Pfad im Dateibrowser auswaehlen. Alternativ kannst du den
@@ -110,6 +112,8 @@ Fuer den aktuellen SynVA-Standardfall ist der automatische Output-Ordner:
 C:/Users/Niklas/Desktop/synva_real_data/synva_queue_output
 ```
 
+Die Originaldateien im Eingabeordner werden dabei nicht ueberschrieben.
+
 ## Workflow
 
 1. `Use SynVA Folder Scan` aktiviert lassen, wenn du die SynVA-Ordnerstruktur
@@ -119,27 +123,25 @@ C:/Users/Niklas/Desktop/synva_real_data/synva_queue_output
 4. `Output Folder` leer lassen oder selbst einen Zielordner waehlen.
 5. `Load First` klicken, um neu zu starten.
 6. Den geladenen Datensatz pruefen oder bearbeiten.
-7. Optional `Review Status` und `Comment` setzen.
-8. `Save & Next` klicken.
+7. `Save & Next` klicken.
 
-Wenn du spaeter weitermachen willst, nicht `Load First` klicken, sondern
-`Resume`. `Load First` setzt die Queue wieder auf den Anfang.
+Wenn du spaeter weitermachen willst, `Resume` klicken. `Load First` setzt die
+Queue wieder auf den Anfang.
 
 ## Ausgabe
 
-Pro gespeichertem Datensatz schreibt das Add-on:
+Pro gespeichertem Datensatz schreibt das Add-on nur eine OBJ-Datei. Damit
+gleichnamige Eingabedateien wie `vessel_submesh.obj` nicht kollidieren, wird pro
+Datensatz ein Unterordner im Output-Ordner angelegt.
 
 ```text
-<id>.blend
-<id>.report.json
+<Output Folder>/<id>/<original-name>.obj
 ```
 
-Zusatzlich wird eine State-Datei geschrieben, damit `Resume` funktioniert.
-
-Im SynVA-Scan-Modus heisst sie:
+Zusaetzlich wird genau eine State-Datei fuer den Fortschritt geschrieben:
 
 ```text
-synva_vessel_submesh.queue_state.json
+<Output Folder>/synva_vessel_submesh.queue_state.json
 ```
 
 ## Suchmuster einstellen

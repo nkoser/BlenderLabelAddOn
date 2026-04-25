@@ -1,20 +1,19 @@
 bl_info = {
     "name": "Data Queue Pipeline",
     "author": "Pipeline Helper",
-    "version": (0, 1, 0),
+    "version": (0, 3, 1),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > Data Queue",
-    "description": "Load datasets one by one, review them, save, and continue",
+    "description": "Load datasets one by one, export edited OBJ files, and continue",
     "category": "Pipeline",
 }
 
 import csv
 import json
-from datetime import datetime
 from pathlib import Path
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import Operator, Panel, PropertyGroup
 
 
@@ -46,7 +45,7 @@ def item_id_from_match(root, input_path):
 
 def scan_synva_rows(settings):
     root = abspath(settings.synva_root)
-    file_pattern = settings.synva_file_pattern.strip()
+    file_pattern = settings.synva_file_pattern.strip().replace("\\", "/")
 
     if not root.exists():
         raise FileNotFoundError("SynVA root not found: {}".format(root))
@@ -196,9 +195,37 @@ def output_dir(settings):
     return path
 
 
+def obj_output_path(settings, item):
+    source_path = Path(item["input_path"])
+    item_dir = output_dir(settings) / item["id"]
+    item_dir.mkdir(parents=True, exist_ok=True)
+    target_path = item_dir / source_path.with_suffix(".obj").name
+
+    if target_path.resolve() == source_path.resolve():
+        raise RuntimeError("Refusing to overwrite the original input OBJ: {}".format(source_path))
+
+    return target_path
+
+
+def call_operator_with_supported_kwargs(operator, **kwargs):
+    supported = {prop.identifier for prop in operator.get_rna_type().properties}
+    filtered_kwargs = {key: value for key, value in kwargs.items() if key in supported}
+    return operator(**filtered_kwargs)
+
+
+def ensure_object_mode():
+    active = bpy.context.view_layer.objects.active
+    if active and active.mode != "OBJECT":
+        if not bpy.ops.object.mode_set.poll():
+            raise RuntimeError("Switch to Object Mode before saving.")
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
 def clear_scene():
-    bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.object.delete()
+    ensure_object_mode()
+
+    for obj in list(bpy.context.scene.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
 
 
 def import_dataset(filepath):
@@ -232,6 +259,35 @@ def import_dataset(filepath):
         )
 
 
+def export_obj_dataset(filepath):
+    ensure_object_mode()
+
+    mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+    if not mesh_objects:
+        raise RuntimeError("No mesh objects to export.")
+
+    if hasattr(bpy.ops.wm, "obj_export"):
+        call_operator_with_supported_kwargs(
+            bpy.ops.wm.obj_export,
+            filepath=str(filepath),
+            export_selected_objects=False,
+            apply_modifiers=True,
+            export_materials=False,
+            export_uv=True,
+            export_normals=True,
+        )
+    else:
+        call_operator_with_supported_kwargs(
+            bpy.ops.export_scene.obj,
+            filepath=str(filepath),
+            use_selection=False,
+            use_mesh_modifiers=True,
+            use_materials=False,
+            use_uvs=True,
+            use_normals=True,
+        )
+
+
 def run_checks():
     """Run lightweight default checks. Replace or extend for production rules."""
 
@@ -248,35 +304,11 @@ def run_checks():
         if not obj.data.polygons:
             issues.append("{}: mesh has no faces.".format(obj.name))
 
-        if not obj.data.materials:
-            issues.append("{}: no material assigned.".format(obj.name))
-
     return {
         "ok": not issues,
         "issues": issues,
         "mesh_object_count": len(mesh_objects),
     }
-
-
-def write_report(settings, item, check_result, blend_path):
-    report = {
-        "id": item["id"],
-        "input_path": item["input_path"],
-        "dataset_dir": item.get("dataset_dir", ""),
-        "source_format": item.get("source_format", ""),
-        "file_pattern": item.get("file_pattern", ""),
-        "blend_path": str(blend_path),
-        "review_status": settings.review_status,
-        "review_comment": settings.review_comment,
-        "saved_at": datetime.now().isoformat(timespec="seconds"),
-        "check": check_result,
-    }
-
-    report_path = output_dir(settings) / "{}.report.json".format(item["id"])
-    with report_path.open("w", encoding="utf-8") as handle:
-        json.dump(report, handle, indent=2, ensure_ascii=True)
-
-    return report_path
 
 
 def update_check_text(settings, check_result):
@@ -311,8 +343,6 @@ def load_item(context, index):
 
     settings.current_index = index
     settings.current_id = item["id"]
-    settings.review_status = "accepted"
-    settings.review_comment = ""
 
     check_result = run_checks()
     update_check_text(settings, check_result)
@@ -374,7 +404,7 @@ class DATAQUEUE_Settings(PropertyGroup):
 
     output_dir: StringProperty(
         name="Output Folder",
-        description="Folder for saved .blend files and reports",
+        description="Folder for exported OBJ files",
         subtype="DIR_PATH",
     )
 
@@ -402,23 +432,6 @@ class DATAQUEUE_Settings(PropertyGroup):
         name="Clear Scene Before Load",
         default=True,
     )
-
-    review_status: EnumProperty(
-        name="Review Status",
-        items=(
-            ("accepted", "Accepted", "Dataset is accepted"),
-            ("needs_fix", "Needs Fix", "Dataset needs follow-up work"),
-            ("rejected", "Rejected", "Dataset is rejected"),
-        ),
-        default="accepted",
-    )
-
-    review_comment: StringProperty(
-        name="Comment",
-        description="Optional note saved into the item report",
-        default="",
-    )
-
 
 # ---------------------------------------------------------------------------
 # Operators
@@ -503,7 +516,7 @@ class DATAQUEUE_OT_reload_current(Operator):
 class DATAQUEUE_OT_save_next(Operator):
     bl_idname = "data_queue.save_next"
     bl_label = "Save & Next"
-    bl_description = "Save the current dataset and load the next one"
+    bl_description = "Export the current dataset as OBJ and load the next one"
 
     def execute(self, context):
         settings = get_settings(context)
@@ -517,25 +530,20 @@ class DATAQUEUE_OT_save_next(Operator):
                 return {"CANCELLED"}
 
             item = rows[index]
+            ensure_object_mode()
             check_result = run_checks()
             update_check_text(settings, check_result)
 
-            out_dir = output_dir(settings)
-            blend_path = out_dir / "{}.blend".format(item["id"])
-
-            bpy.ops.wm.save_as_mainfile(filepath=str(blend_path), copy=True)
-            report_path = write_report(settings, item, check_result, blend_path)
+            obj_path = obj_output_path(settings, item)
+            export_obj_dataset(obj_path)
 
             state = load_state(settings)
             state.setdefault("done", {})
             state["done"][item["id"]] = {
                 "index": index,
                 "input_path": item["input_path"],
-                "blend_path": str(blend_path),
-                "report_path": str(report_path),
+                "obj_path": str(obj_path),
                 "check_ok": check_result["ok"],
-                "review_status": settings.review_status,
-                "review_comment": settings.review_comment,
             }
 
             next_index = index + 1
@@ -583,7 +591,6 @@ class DATAQUEUE_OT_skip(Operator):
             state["skipped"][item["id"]] = {
                 "index": index,
                 "input_path": item["input_path"],
-                "review_comment": settings.review_comment,
             }
 
             next_index = index + 1
@@ -647,10 +654,6 @@ class DATAQUEUE_PT_panel(Panel):
 
         row = layout.row()
         row.operator("data_queue.skip", icon="NEXT_KEYFRAME")
-
-        layout.separator()
-        layout.prop(settings, "review_status")
-        layout.prop(settings, "review_comment")
 
         layout.separator()
         layout.label(text="Index: {}".format(settings.current_index))
