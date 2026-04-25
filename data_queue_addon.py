@@ -18,6 +18,11 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, PointerProperty, 
 from bpy.types import Operator, Panel, PropertyGroup
 
 
+SYNVA_DEFAULT_ROOT = r"C:\Users\Niklas\Desktop\synva_real_data\synva_real_data"
+SYNVA_SUBMESH_RELATIVE_PATH = Path("05_submeshes") / "vessel_submesh.obj"
+SYNVA_STATE_FILENAME = "synva_vessel_submesh.queue_state.json"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -31,7 +36,35 @@ def get_settings(context):
     return context.scene.data_queue_settings
 
 
-def read_manifest(settings):
+def scan_synva_rows(settings):
+    root = abspath(settings.synva_root)
+
+    if not root.exists():
+        raise FileNotFoundError("SynVA root not found: {}".format(root))
+
+    if not root.is_dir():
+        raise NotADirectoryError("SynVA root is not a folder: {}".format(root))
+
+    rows = []
+    for dataset_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        input_path = dataset_dir / SYNVA_SUBMESH_RELATIVE_PATH
+        if not input_path.exists():
+            continue
+
+        rows.append(
+            {
+                "id": dataset_dir.name,
+                "input_path": str(input_path),
+                "dataset_dir": str(dataset_dir),
+                "row_index": len(rows),
+                "source_format": "synva_vessel_submesh",
+            }
+        )
+
+    return rows
+
+
+def read_csv_manifest(settings):
     manifest_path = abspath(settings.manifest_path)
 
     if not manifest_path.exists():
@@ -73,7 +106,30 @@ def read_manifest(settings):
     return rows
 
 
+def read_manifest(settings):
+    if settings.use_synva_scan:
+        return scan_synva_rows(settings)
+
+    if not settings.manifest_path:
+        raise ValueError("Set a manifest CSV or enable SynVA folder scan.")
+
+    return read_csv_manifest(settings)
+
+
+def default_output_dir(settings):
+    if settings.output_dir:
+        return abspath(settings.output_dir)
+
+    if settings.use_synva_scan:
+        return abspath(settings.synva_root).parent / "synva_queue_output"
+
+    return abspath(settings.manifest_path).parent / "output"
+
+
 def state_path(settings):
+    if settings.use_synva_scan:
+        return default_output_dir(settings) / SYNVA_STATE_FILENAME
+
     return abspath(settings.manifest_path).with_suffix(".queue_state.json")
 
 
@@ -108,11 +164,7 @@ def save_state(settings, state):
 
 
 def output_dir(settings):
-    if settings.output_dir:
-        path = abspath(settings.output_dir)
-    else:
-        path = abspath(settings.manifest_path).parent / "output"
-
+    path = default_output_dir(settings)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -183,6 +235,8 @@ def write_report(settings, item, check_result, blend_path):
     report = {
         "id": item["id"],
         "input_path": item["input_path"],
+        "dataset_dir": item.get("dataset_dir", ""),
+        "source_format": item.get("source_format", ""),
         "blend_path": str(blend_path),
         "review_status": settings.review_status,
         "review_comment": settings.review_comment,
@@ -265,6 +319,19 @@ def next_unfinished_index(rows, state):
 
 
 class DATAQUEUE_Settings(PropertyGroup):
+    use_synva_scan: BoolProperty(
+        name="Use SynVA Folder Scan",
+        description="Scan */05_submeshes/vessel_submesh.obj below the SynVA root",
+        default=True,
+    )
+
+    synva_root: StringProperty(
+        name="SynVA Root",
+        description="Folder that contains the SynVA dataset folders",
+        default=SYNVA_DEFAULT_ROOT,
+        subtype="DIR_PATH",
+    )
+
     manifest_path: StringProperty(
         name="Manifest CSV",
         description="CSV with at least id,input_path columns",
@@ -521,7 +588,13 @@ class DATAQUEUE_PT_panel(Panel):
         layout = self.layout
         settings = get_settings(context)
 
-        layout.prop(settings, "manifest_path")
+        layout.prop(settings, "use_synva_scan")
+        if settings.use_synva_scan:
+            layout.prop(settings, "synva_root")
+            layout.label(text="Pattern: */05_submeshes/vessel_submesh.obj")
+        else:
+            layout.prop(settings, "manifest_path")
+
         layout.prop(settings, "output_dir")
         layout.prop(settings, "clear_scene_before_load")
 

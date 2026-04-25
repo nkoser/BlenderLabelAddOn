@@ -4,6 +4,23 @@ This repository contains a small Blender add-on for reviewing datasets one by on
 It loads a queue from a CSV manifest, imports the current dataset, lets you review
 or edit it in Blender, and then saves the result with `Save & Next`.
 
+## SynVA Data Setup
+
+The add-on is preconfigured for this local data layout:
+
+```text
+C:/Users/Niklas/Desktop/synva_real_data/synva_real_data/*/05_submeshes/vessel_submesh.obj
+```
+
+In the Blender panel, keep `Use SynVA Folder Scan` enabled. The add-on will use
+each dataset folder name as the item ID, for example `aneux_ANSYS_UNIGE_09`.
+
+If `Output Folder` is empty, SynVA results are written to:
+
+```text
+C:/Users/Niklas/Desktop/synva_real_data/synva_queue_output
+```
+
 ## Installation
 
 1. Open Blender.
@@ -13,6 +30,8 @@ or edit it in Blender, and then saves the result with `Save & Next`.
 5. In the 3D viewport, press `N` and open the `Data Queue` tab.
 
 ## Manifest
+
+CSV manifests are still supported if you disable `Use SynVA Folder Scan`.
 
 Create a CSV file with at least an `input_path` column. An `id` column is
 recommended because it controls output file names.
