@@ -32,7 +32,7 @@ Dieser Modus ist fuer Ordnerstrukturen gedacht, bei denen jeder Datensatz in
 einem eigenen Unterordner liegt und die relevante Datei immer denselben relativen
 Pfad hat.
 
-Aktuell ist dieses Suchmuster im Skript eingestellt:
+Das Suchmuster ist im Blender-Panel einstellbar. Der Standardwert ist:
 
 ```text
 <SynVA Root>/*/05_submeshes/vessel_submesh.obj
@@ -46,6 +46,9 @@ Beispiel:
 ```text
 SynVA Root:
 C:/Users/Niklas/Desktop/synva_real_data/synva_real_data
+
+File Pattern:
+*/05_submeshes/vessel_submesh.obj
 ```
 
 Das Add-on sucht dann automatisch nach:
@@ -84,6 +87,7 @@ Im Tab `Data Queue` gibt es diese Felder:
 
 - `Use SynVA Folder Scan`: aktiviert den automatischen Ordner-Scan.
 - `SynVA Root`: Hauptordner, unter dem die Datensatzordner liegen.
+- `File Pattern`: Suchmuster relativ zu `SynVA Root`.
 - `Manifest CSV`: CSV-Datei, falls der automatische Scan deaktiviert ist.
 - `Output Folder`: Zielordner fuer gespeicherte `.blend`-Dateien und Reports.
 
@@ -94,6 +98,8 @@ Pfad direkt in das Feld schreiben.
 Wichtig:
 
 - Bei `SynVA Root` nur den Hauptordner auswaehlen, nicht den `*`-Platzhalter.
+- Bei `File Pattern` kommt der variable Dateiteil rein, zum Beispiel
+  `*/05_submeshes/vessel_submesh.obj`.
 - Bei `Output Folder` einen normalen Zielordner auswaehlen.
 - Wenn `Output Folder` leer bleibt, waehlt das Add-on automatisch einen
   passenden Standardordner.
@@ -109,11 +115,12 @@ C:/Users/Niklas/Desktop/synva_real_data/synva_queue_output
 1. `Use SynVA Folder Scan` aktiviert lassen, wenn du die SynVA-Ordnerstruktur
    verwenden willst.
 2. Bei `SynVA Root` den Hauptordner auswaehlen.
-3. `Output Folder` leer lassen oder selbst einen Zielordner waehlen.
-4. `Load First` klicken, um neu zu starten.
-5. Den geladenen Datensatz pruefen oder bearbeiten.
-6. Optional `Review Status` und `Comment` setzen.
-7. `Save & Next` klicken.
+3. Bei `File Pattern` das Suchmuster eintragen.
+4. `Output Folder` leer lassen oder selbst einen Zielordner waehlen.
+5. `Load First` klicken, um neu zu starten.
+6. Den geladenen Datensatz pruefen oder bearbeiten.
+7. Optional `Review Status` und `Comment` setzen.
+8. `Save & Next` klicken.
 
 Wenn du spaeter weitermachen willst, nicht `Load First` klicken, sondern
 `Resume`. `Load First` setzt die Queue wieder auf den Anfang.
@@ -135,30 +142,42 @@ Im SynVA-Scan-Modus heisst sie:
 synva_vessel_submesh.queue_state.json
 ```
 
-## Suchmuster im Skript anpassen
+## Suchmuster einstellen
 
 Wenn deine Datei nicht mehr unter `05_submeshes/vessel_submesh.obj` liegt, kannst
-du das Suchmuster in `data_queue_addon.py` anpassen.
-
-Relevant sind diese Zeilen am Anfang der Datei:
-
-```python
-SYNVA_DEFAULT_ROOT = r"C:\Users\Niklas\Desktop\synva_real_data\synva_real_data"
-SYNVA_SUBMESH_RELATIVE_PATH = Path("05_submeshes") / "vessel_submesh.obj"
-```
+du das Suchmuster direkt im Blender-Panel bei `File Pattern` anpassen.
 
 Beispiele:
 
-```python
-SYNVA_SUBMESH_RELATIVE_PATH = Path("mesh") / "model.obj"
+```text
+*/05_submeshes/vessel_submesh.obj
 ```
 
-```python
-SYNVA_SUBMESH_RELATIVE_PATH = Path("exports") / "final.glb"
+```text
+*/mesh/model.obj
 ```
 
-Nach einer Skriptaenderung das Add-on in Blender deaktivieren und wieder
-aktivieren. Falls Blender die Aenderung nicht uebernimmt, Blender neu starten.
+```text
+*/exports/final.glb
+```
+
+Wenn die Datei nicht nur in direkten Unterordnern liegen kann, kannst du `**`
+verwenden:
+
+```text
+**/vessel_submesh.obj
+```
+
+Das verwendet Blenders/Pythons Glob-Syntax, keine vollstaendige Regex-Syntax.
+`*` steht fuer einen Ordner- oder Dateinamen auf einer Ebene, `**` fuer beliebig
+viele Unterordner.
+
+Wenn du nur den Standardwert dauerhaft im Skript aendern willst, ist diese Zeile
+am Anfang von `data_queue_addon.py` relevant:
+
+```python
+SYNVA_DEFAULT_FILE_PATTERN = "*/05_submeshes/vessel_submesh.obj"
+```
 
 ## Projektlogik anpassen
 

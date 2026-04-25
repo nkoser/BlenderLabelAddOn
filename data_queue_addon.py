@@ -19,7 +19,7 @@ from bpy.types import Operator, Panel, PropertyGroup
 
 
 SYNVA_DEFAULT_ROOT = r"C:\Users\Niklas\Desktop\synva_real_data\synva_real_data"
-SYNVA_SUBMESH_RELATIVE_PATH = Path("05_submeshes") / "vessel_submesh.obj"
+SYNVA_DEFAULT_FILE_PATTERN = "*/05_submeshes/vessel_submesh.obj"
 SYNVA_STATE_FILENAME = "synva_vessel_submesh.queue_state.json"
 
 
@@ -36,8 +36,17 @@ def get_settings(context):
     return context.scene.data_queue_settings
 
 
+def item_id_from_match(root, input_path):
+    relative_parts = input_path.relative_to(root).parts
+    if len(relative_parts) > 1:
+        return relative_parts[0]
+
+    return input_path.stem
+
+
 def scan_synva_rows(settings):
     root = abspath(settings.synva_root)
+    file_pattern = settings.synva_file_pattern.strip()
 
     if not root.exists():
         raise FileNotFoundError("SynVA root not found: {}".format(root))
@@ -45,19 +54,37 @@ def scan_synva_rows(settings):
     if not root.is_dir():
         raise NotADirectoryError("SynVA root is not a folder: {}".format(root))
 
+    if not file_pattern:
+        raise ValueError("Set a file pattern, for example: {}".format(SYNVA_DEFAULT_FILE_PATTERN))
+
     rows = []
-    for dataset_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-        input_path = dataset_dir / SYNVA_SUBMESH_RELATIVE_PATH
+    seen_ids = {}
+
+    for input_path in sorted(path for path in root.glob(file_pattern) if path.is_file()):
+        item_id = item_id_from_match(root, input_path)
+        original_item_id = item_id
+        duplicate_count = seen_ids.get(item_id, 0)
+        seen_ids[item_id] = duplicate_count + 1
+
+        if duplicate_count:
+            item_id = "{}_{:03d}".format(original_item_id, duplicate_count + 1)
+
+        dataset_dir = input_path.parent
+        relative_parts = input_path.relative_to(root).parts
+        if len(relative_parts) > 1:
+            dataset_dir = root / relative_parts[0]
+
         if not input_path.exists():
             continue
 
         rows.append(
             {
-                "id": dataset_dir.name,
+                "id": item_id,
                 "input_path": str(input_path),
                 "dataset_dir": str(dataset_dir),
                 "row_index": len(rows),
-                "source_format": "synva_vessel_submesh",
+                "source_format": "folder_pattern",
+                "file_pattern": file_pattern,
             }
         )
 
@@ -237,6 +264,7 @@ def write_report(settings, item, check_result, blend_path):
         "input_path": item["input_path"],
         "dataset_dir": item.get("dataset_dir", ""),
         "source_format": item.get("source_format", ""),
+        "file_pattern": item.get("file_pattern", ""),
         "blend_path": str(blend_path),
         "review_status": settings.review_status,
         "review_comment": settings.review_comment,
@@ -321,7 +349,7 @@ def next_unfinished_index(rows, state):
 class DATAQUEUE_Settings(PropertyGroup):
     use_synva_scan: BoolProperty(
         name="Use SynVA Folder Scan",
-        description="Scan */05_submeshes/vessel_submesh.obj below the SynVA root",
+        description="Scan files below the SynVA root using the file pattern",
         default=True,
     )
 
@@ -330,6 +358,12 @@ class DATAQUEUE_Settings(PropertyGroup):
         description="Folder that contains the SynVA dataset folders",
         default=SYNVA_DEFAULT_ROOT,
         subtype="DIR_PATH",
+    )
+
+    synva_file_pattern: StringProperty(
+        name="File Pattern",
+        description="Glob pattern relative to SynVA Root, for example */05_submeshes/vessel_submesh.obj",
+        default=SYNVA_DEFAULT_FILE_PATTERN,
     )
 
     manifest_path: StringProperty(
@@ -591,7 +625,7 @@ class DATAQUEUE_PT_panel(Panel):
         layout.prop(settings, "use_synva_scan")
         if settings.use_synva_scan:
             layout.prop(settings, "synva_root")
-            layout.label(text="Pattern: */05_submeshes/vessel_submesh.obj")
+            layout.prop(settings, "synva_file_pattern")
         else:
             layout.prop(settings, "manifest_path")
 
